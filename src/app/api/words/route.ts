@@ -1,5 +1,6 @@
 import sqlite3 from "sqlite3";
 import { open } from "sqlite";
+import path from "path";
 
 export async function GET(request: Request) {
   // Parse the lexicon from the request URL query parameters.
@@ -12,10 +13,10 @@ export async function GET(request: Request) {
       { status: 400, headers: { "Content-Type": "application/json" } }
     );
   }
-
+  const dbPath = path.join(process.cwd(), "data", `${lexicon}.db`);
   // Adjust the filename path as needed. Here we assume the DB is in a data folder.
   const db = await open({
-    filename: `./data/${lexicon}.db`,
+    filename: dbPath,
     driver: sqlite3.Database,
   });
 
