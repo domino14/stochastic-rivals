@@ -13,7 +13,7 @@ interface Match {
   status: string; // e.g. "waiting", "in-progress", "closed"
 }
 
-export default function Lobby() {
+const Lobby: React.FC = () => {
   const router = useRouter();
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -212,4 +212,6 @@ export default function Lobby() {
       </div>
     </Suspense>
   );
-}
+};
+
+export default Lobby;
