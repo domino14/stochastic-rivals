@@ -57,6 +57,20 @@ const MatchPage: React.FC = () => {
     fetchMatch();
   }, [id, queryName]);
 
+  useEffect(() => {
+    function handleBeforeUnload() {
+      // Create a small payload with the match id and player name.
+      const payload = JSON.stringify({ id, playerName });
+      // Use sendBeacon to call your API route.
+      navigator.sendBeacon("/api/leave", payload);
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [id, playerName]);
+
   const fetchRandomQuestion = useCallback(async () => {
     const length = randint(7, 8);
     try {
@@ -290,7 +304,7 @@ const MatchPage: React.FC = () => {
   }, [match?.current_solutions]);
 
   // If the match record is still loading…
-  if (!match) return <div>Loading match...</div>;
+  if (!match) return <div>Your opponent has left. The match is closed.</div>;
 
   // If the user has not yet joined the match, show a join form.
   if (!hasJoined) {
@@ -310,14 +324,13 @@ const MatchPage: React.FC = () => {
 
   return (
     <div style={{ padding: "2rem" }}>
-      <h1>Match: {id}</h1>
       <p>Welcome, {playerName}!</p>
       <p>Lexicon: {match.lexicon}</p>{" "}
       {match.player1_name === playerName && !match.player2_name && (
         <div
           style={{
             marginBottom: "1rem",
-            background: "#f0f0f0",
+            background: "#525252",
             padding: "1rem",
             borderRadius: "8px",
           }}
@@ -397,6 +410,14 @@ const MatchPage: React.FC = () => {
             )}
           </div>
         )}
+      {match.status === "closed" && (
+        <div
+          style={{ background: "#744", padding: "1rem", borderRadius: "8px" }}
+        >
+          <h2>Your opponent has left the game.</h2>
+          <p>The match will be closed.</p>
+        </div>
+      )}
     </div>
   );
 };
