@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../../lib/supabase_client";
 import { useParams, useSearchParams } from "next/navigation";
+import { randint } from "@/lib/utils";
 
 interface Match {
   id: string;
@@ -57,8 +58,11 @@ const MatchPage: React.FC = () => {
   }, [id, queryName]);
 
   const fetchRandomQuestion = useCallback(async () => {
+    const length = randint(7, 8);
     try {
-      const response = await fetch(`/api/words?lexicon=${match?.lexicon}`);
+      const response = await fetch(
+        `/api/words?lexicon=${match?.lexicon}&length=${length}`
+      );
       const data = await response.json();
       console.log("Random Word:", data);
       // data should be in the form:
@@ -102,6 +106,10 @@ const MatchPage: React.FC = () => {
 
   // 3. Function to let a player join the match.
   const joinMatch = async () => {
+    if (match?.player1_name && match.player2_name) {
+      alert("This room is already full.");
+      return;
+    }
     if (!playerName.trim()) {
       alert("Please enter your name.");
       return;
@@ -182,6 +190,7 @@ const MatchPage: React.FC = () => {
     if (match && match.status === "countdown") {
       const countdownSeconds = 3;
       setCountdown(countdownSeconds);
+      setInput("");
       const interval = setInterval(() => {
         setCountdown((prev) => {
           if (prev !== null) {

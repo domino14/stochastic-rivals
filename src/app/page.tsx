@@ -55,6 +55,7 @@ export default function Home() {
       <select value={lexicon} onChange={(e) => setLexicon(e.target.value)}>
         <option value="NWL23">NWL23</option>
         <option value="CSW24">CSW24</option>
+        <option value="nonexisting">None (do not select)</option>
       </select>
       <button onClick={createMatch}>Create Match</button>
     </div>
