@@ -2,8 +2,9 @@
 // pages/match/[id].tsx
 import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../../lib/supabase_client";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { randint } from "@/lib/utils";
+import { Button, Loader } from "@mantine/core";
 
 interface Match {
   id: string;
@@ -22,18 +23,18 @@ interface Match {
 
 const MatchPage: React.FC = () => {
   const { id } = useParams();
+  const router = useRouter();
+
   const [match, setMatch] = useState<Match | null>(null);
-  const [hasJoined, setHasJoined] = useState<boolean>(false);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [input, setInput] = useState<string>("");
 
   const searchParams = useSearchParams();
-  const queryName = searchParams.get("playerName") || "";
-  const [playerName, setPlayerName] = useState(queryName);
+  const playerName = searchParams.get("playerName") || "";
 
   const [allAnswers, setAllAnswers] = useState<string[]>([]);
   const [guessedAnswers, setGuessedAnswers] = useState<string[]>([]);
-  console.log("match is", match);
+
   // 1. Fetch the match record when the component mounts.
   useEffect(() => {
     if (!id) return;
@@ -48,14 +49,10 @@ const MatchPage: React.FC = () => {
         return;
       }
       setMatch(data);
-      // If the query parameter matches the match record, mark as joined
-      if (data.player1_name === queryName) {
-        setHasJoined(true);
-      }
     };
 
     fetchMatch();
-  }, [id, queryName]);
+  }, [id, playerName]);
 
   useEffect(() => {
     function handleBeforeUnload() {
@@ -117,36 +114,6 @@ const MatchPage: React.FC = () => {
       supabase.removeChannel(channel);
     };
   }, [id]);
-
-  // 3. Function to let a player join the match.
-  const joinMatch = async () => {
-    if (match?.player1_name && match.player2_name) {
-      alert("This room is already full.");
-      return;
-    }
-    if (!playerName.trim()) {
-      alert("Please enter your name.");
-      return;
-    }
-    if (!match) return;
-
-    // Check if the name is already taken.
-    if (match.player1_name === playerName) {
-      alert("This name is already taken. Please choose a different name.");
-      return;
-    }
-
-    // Otherwise, update the match with player2_name.
-    const { error } = await supabase
-      .from("matches")
-      .update({ player2_name: playerName })
-      .eq("id", id);
-    if (error) {
-      console.error("Error joining match:", error);
-      return;
-    }
-    setHasJoined(true);
-  };
 
   const startJumble = useCallback(async () => {
     if (!id || !match) return;
@@ -303,63 +270,80 @@ const MatchPage: React.FC = () => {
     setGuessedAnswers([]);
   }, [match?.current_solutions]);
 
+  async function handleBackToLobby() {
+    // Call your leave endpoint explicitly before navigating away.
+    // Using fetch with keepalive can help send the request even during navigation.
+    await fetch("/api/leave", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      // Using keepalive so the request isn't canceled on navigation.
+      keepalive: true,
+      body: JSON.stringify({
+        id: match?.id, // Make sure you have the current match ID in scope
+        playerName,
+      }),
+    });
+
+    // Then, navigate back to the lobby.
+    router.push(`/lobby?playerName=${encodeURIComponent(playerName)}`);
+  }
+
   // If the match record is still loading…
   if (!match) return <div>Your opponent has left. The match is closed.</div>;
 
-  // If the user has not yet joined the match, show a join form.
-  if (!hasJoined) {
-    return (
-      <div style={{ padding: "2rem" }}>
-        <h1>Join Match: {id}</h1>
-        <input
-          type="text"
-          placeholder="Enter your name"
-          value={playerName}
-          onChange={(e) => setPlayerName(e.target.value)}
-        />
-        <button onClick={joinMatch}>Join Match</button>
-      </div>
-    );
-  }
-
   return (
     <div style={{ padding: "2rem" }}>
+      <Button onClick={handleBackToLobby}>Back to Lobby</Button>
       <p>Welcome, {playerName}!</p>
       <p>Lexicon: {match.lexicon}</p>{" "}
-      {match.player1_name === playerName && !match.player2_name && (
-        <div
-          style={{
-            marginBottom: "1rem",
-            background: "#525252",
-            padding: "1rem",
-            borderRadius: "8px",
-          }}
-        >
-          <p>Send this link to your opponent:</p>
-          <input
-            type="text"
-            readOnly
-            value={`${window.location.origin}/match/${id}`}
-            style={{ width: "100%", padding: "0.5rem", marginBottom: "0.5rem" }}
-          />
-          <button
-            onClick={() =>
-              navigator.clipboard.writeText(
-                `${window.location.origin}/match/${id}`
-              )
-            }
+      {match.player1_name === playerName && !match.player2_name ? (
+        <>
+          <div
+            style={{
+              marginBottom: "1rem",
+              background: "#525252",
+              padding: "1rem",
+              borderRadius: "8px",
+            }}
           >
-            Copy Link
-          </button>
-        </div>
+            <p>
+              Send this link to your opponent, or wait for someone to join...
+            </p>
+            <input
+              type="text"
+              readOnly
+              value={`${window.location.origin}/match/${id}`}
+              style={{
+                width: "100%",
+                padding: "0.5rem",
+                marginBottom: "0.5rem",
+              }}
+            />
+            <button
+              onClick={() =>
+                navigator.clipboard.writeText(
+                  `${window.location.origin}/match/${id}`
+                )
+              }
+            >
+              Copy Link
+            </button>
+          </div>
+          <Loader />
+        </>
+      ) : (
+        <>
+          <p>
+            Players: {match.player1_name} vs {match.player2_name}
+          </p>
+          <p>
+            Score: {match.player1_name}: {match.player1_score} –{" "}
+            {match.player2_name}: {match.player2_score}
+          </p>
+        </>
       )}
-      <p>
-        Players: {match.player1_name} vs {match.player2_name}
-      </p>
-      <p>
-        Score: {match.player1_name}: {match.player1_score} –{" "}
-        {match.player2_name}: {match.player2_score}
-      </p>
       {match.status === "countdown" &&
         countdown !== null &&
         match.last_winner && (
