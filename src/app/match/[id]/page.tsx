@@ -20,6 +20,10 @@ interface Match {
   last_winner?: string | null;
   lexicon: string;
 }
+const gameTimerSeconds = 15;
+const countdownSeconds = 4;
+const winningScore = 15;
+const nextRoundTimerSeconds = 30;
 
 const MatchPage: React.FC = () => {
   const { id } = useParams();
@@ -27,6 +31,7 @@ const MatchPage: React.FC = () => {
 
   const [match, setMatch] = useState<Match | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [gameTimer, setGameTimer] = useState<number | null>(null);
   const [input, setInput] = useState<string>("");
 
   const searchParams = useSearchParams();
@@ -115,40 +120,60 @@ const MatchPage: React.FC = () => {
     };
   }, [id]);
 
-  const startJumble = useCallback(async () => {
-    if (!id || !match) return;
-
-    // Only allow player1 to set the jumble.
-    if (match.player1_name !== playerName) {
-      console.log("Only player 1 can set the jumble.");
-      return;
-    }
-    console.log("i am ", playerName, "and i will set the jumble");
-
-    const data = await fetchRandomQuestion();
-    if (!data) return;
-    const { alphagram, solutions } = data;
-    // Ensure we sort the solutions for consistency.
-    const sortedSolutions = [...solutions].sort();
-    const joinedSolutions = sortedSolutions.join(",");
-
-    const updates: Partial<Match> = {
-      current_solutions: joinedSolutions,
-      current_alphagram: alphagram,
-      last_winner: null,
-      status: "in-progress",
-      round: (match.round || 0) + 1,
-    };
-
+  const giveup = useCallback(async () => {
     const { error } = await supabase
       .from("matches")
-      .update(updates)
+      .update({ status: "countdown", last_winner: null })
       .eq("id", id);
     if (error) {
-      console.error("Error starting jumble:", error);
+      console.error("Error updating status:", error);
       return;
     }
-  }, [id, match, playerName, fetchRandomQuestion]);
+  }, [id]);
+
+  const startJumble = useCallback(
+    async (resetScores: boolean) => {
+      if (!id || !match) return;
+
+      // Only allow player1 to set the jumble.
+      if (match.player1_name !== playerName) {
+        console.log("Only player 1 can set the jumble.");
+        return;
+      }
+      console.log("i am ", playerName, "and i will set the jumble");
+
+      const data = await fetchRandomQuestion();
+      if (!data) return;
+      const { alphagram, solutions } = data;
+      // Ensure we sort the solutions for consistency.
+      const sortedSolutions = [...solutions].sort();
+      const joinedSolutions = sortedSolutions.join(",");
+
+      const updates: Partial<Match> = {
+        current_solutions: joinedSolutions,
+        current_alphagram: alphagram,
+        last_winner: null,
+        last_answer: joinedSolutions,
+        status: "in-progress",
+        round: (match.round || 0) + 1,
+      };
+      if (resetScores) {
+        updates.player1_score = 0;
+        updates.player2_score = 0;
+        updates.round = 1;
+      }
+
+      const { error } = await supabase
+        .from("matches")
+        .update(updates)
+        .eq("id", id);
+      if (error) {
+        console.error("Error starting jumble:", error);
+        return;
+      }
+    },
+    [id, match, playerName, fetchRandomQuestion]
+  );
 
   // 4. Start a round by initiating a countdown.
   // We assume here that only player1 initiates the round.
@@ -167,10 +192,36 @@ const MatchPage: React.FC = () => {
     }
   }, [id, match]);
 
+  const endGame = useCallback(async () => {
+    // Update status to "countdown" in the DB so both clients know a round is starting.
+    const { error } = await supabase
+      .from("matches")
+      .update({ status: "gameover-countdown" })
+      .eq("id", id);
+    if (error) {
+      console.error("Error updating status:", error);
+      return;
+    }
+  }, [id]);
+
   useEffect(() => {
-    if (match && match.status === "countdown") {
-      const countdownSeconds = 3;
-      setCountdown(countdownSeconds);
+    if (
+      match &&
+      (match.status === "countdown" || match.status === "gameover-countdown")
+    ) {
+      const gameHadEnded = match.status === "gameover-countdown";
+
+      if (match.status === "countdown") {
+        if (
+          match.player1_score === winningScore ||
+          match.player2_score === winningScore
+        ) {
+          endGame();
+        }
+        setCountdown(countdownSeconds);
+      } else {
+        setCountdown(nextRoundTimerSeconds);
+      }
       setInput("");
       const interval = setInterval(() => {
         setCountdown((prev) => {
@@ -178,7 +229,7 @@ const MatchPage: React.FC = () => {
             if (prev <= 1) {
               clearInterval(interval);
               if (match.player1_name === playerName) {
-                startJumble();
+                startJumble(gameHadEnded);
               }
               return 0;
             }
@@ -189,7 +240,29 @@ const MatchPage: React.FC = () => {
       }, 1000);
       return () => clearInterval(interval);
     }
-  }, [match, playerName, startJumble, startRound]);
+  }, [match, playerName, startJumble, startRound, endGame]);
+
+  useEffect(() => {
+    if (match && match.status === "in-progress") {
+      setGameTimer(gameTimerSeconds);
+      const interval = setInterval(() => {
+        setGameTimer((prev) => {
+          if (prev !== null) {
+            if (prev <= 1) {
+              clearInterval(interval);
+              if (match.player1_name === playerName) {
+                giveup();
+              }
+              return 0;
+            }
+            return prev - 1;
+          }
+          return null;
+        });
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [match, playerName, giveup]);
 
   // 6. Handle answer submission.
   const submitAnswer = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -297,10 +370,14 @@ const MatchPage: React.FC = () => {
     <div style={{ padding: "2rem" }}>
       <Button onClick={handleBackToLobby}>Back to Lobby</Button>
       <p>Welcome, {playerName}!</p>
+      <p>
+        {gameTimerSeconds}-second timers per question; first to {winningScore}{" "}
+        pts wins!
+      </p>
       <p>Lexicon: {match.lexicon}</p>{" "}
       {match.player1_name === playerName && !match.player2_name ? (
         <>
-          <div
+          {/* <div
             style={{
               marginBottom: "1rem",
               background: "#525252",
@@ -330,7 +407,7 @@ const MatchPage: React.FC = () => {
             >
               Copy Link
             </button>
-          </div>
+          </div> */}
           <Loader />
         </>
       ) : (
@@ -342,6 +419,13 @@ const MatchPage: React.FC = () => {
             Score: {match.player1_name}: {match.player1_score} –{" "}
             {match.player2_name}: {match.player2_score}
           </p>
+        </>
+      )}
+      {match.status === "gameover-countdown" && (
+        <>
+          <div>Game is over!</div>
+
+          <h3>The last answer was {match.last_answer}</h3>
         </>
       )}
       {match.status === "countdown" &&
@@ -356,11 +440,26 @@ const MatchPage: React.FC = () => {
             <h3>The last answer was {match.last_answer}</h3>
           </div>
         )}
-      {match.status === "countdown" && countdown !== null && (
-        <h2>Next round starting in: {countdown}</h2>
-      )}
+      {match.status === "countdown" &&
+        countdown !== null &&
+        !match.last_winner &&
+        match.last_answer && (
+          <div>
+            <h2>No one won this round! :(</h2>
+            <h3>The last answer was {match.last_answer}</h3>
+          </div>
+        )}
+      {(match.status === "countdown" ||
+        match.status === "gameover-countdown") &&
+        countdown !== null && (
+          <h2>
+            {match.status === "countdown" ? "Next round" : "New game"} starting
+            in: {countdown}
+          </h2>
+        )}
       {match.status === "in-progress" && match.current_alphagram && (
         <div>
+          <h2>Time left: {gameTimer} s.</h2>
           <h2>
             Unscramble the letters:{" "}
             <span style={{ fontFamily: "monospace" }}>
