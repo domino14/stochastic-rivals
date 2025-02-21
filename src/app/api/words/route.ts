@@ -27,13 +27,25 @@ export async function GET(request: Request) {
     });
   }
 
-  const numWords = wordLengths[lexicon as Lexicon][length as LengthKey];
-  if (!numWords) {
-    return new Response(JSON.stringify({ error: "No num words found" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
+  // Validate that wordLengths[lexicon] and wordLengths[lexicon][length] exist
+  if (!wordLengths[lexicon]) {
+    console.error(`Invalid lexicon: ${lexicon}`); // Log the error for debugging
+    return new Response(
+      JSON.stringify({ error: "Invalid lexicon parameter" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
   }
+  if (!wordLengths[lexicon][length]) {
+    console.error(
+      `Invalid length: ${length} for lexicon: ${lexicon}`
+    ); // Log the error for debugging
+    return new Response(
+      JSON.stringify({ error: "Invalid length parameter" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  const numWords = wordLengths[lexicon as Lexicon][length as LengthKey];
   const randomProb = randint(1, numWords);
 
   const dbPath = path.join(process.cwd(), "data", `${lexicon}.db`);
